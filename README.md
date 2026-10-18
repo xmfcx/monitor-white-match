@@ -2,7 +2,9 @@
 
 Make the white of up to three monitors match. A pan/tilt webcam at head height measures each screen, and the tool sets the red, green, and blue gains inside each monitor over DDC/CI (the control channel in the display cable).
 
-![Two eyes open on the middle monitor and look at the left monitor](images/eyes.jpg)
+[![The run on video: the eyes open, the colors flash, and the camera bows](images/demo.gif)](https://www.youtube.com/watch?v=_XNaYAK0XjM)
+
+Click the GIF, or [watch the full run on YouTube](https://www.youtube.com/watch?v=_XNaYAK0XjM).
 
 The run is also a show for a video. Two eyes open on a black screen and look around while the real camera turns with them. The page then narrates every step, and at the end a pixel mascot bows while the camera tilts down.
 
