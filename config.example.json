@@ -1,0 +1,24 @@
+{
+  "camera": {
+    "device": "/dev/video0",
+    "width": 3840,
+    "height": 2160,
+    "white_balance_k": 6500,
+    "home": [0, 0, 100],
+    "brightness": 40
+  },
+  "target": "gammastep",
+  "gammastep_config": "~/.config/gammastep/config.ini",
+  "white_background_cmd": "swaymsg 'output * bg #FFFFFF solid_color'",
+  "port": 8917,
+  "ui_monitor": "M",
+  "monitors": [
+    {"id": "L", "name": "Left monitor", "model": "LG UltraGear, IPS", "bus": 5,
+     "aim": [-40, 5, 100], "roi": [0.37, 0.25, 0.55, 0.75]},
+    {"id": "M", "name": "Middle monitor", "model": "LG UltraGear+, OLED", "bus": 6,
+     "aim": [0, -3, 100], "roi": [0.40, 0.40, 0.60, 0.50]},
+    {"id": "R", "name": "Right monitor", "model": "LG UltraGear, IPS", "bus": 7,
+     "aim": [40, 5, 100], "roi": [0.43, 0.25, 0.62, 0.75]}
+  ],
+  "card": {"name": "White card", "aim": [-6, -17, 200], "roi": [0.40, 0.12, 0.66, 0.45]}
+}

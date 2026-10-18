@@ -1,0 +1,782 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Monitor calibration</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wdth,wght@75..100,400..700&display=swap" rel="stylesheet">
+<style>
+:root {
+  color-scheme: dark;
+  --stage: #151a21;
+  --panel: #1c222b;
+  --line: #2c3440;
+  --ink: #eef1f4;
+  --ink-2: #aab3bf;
+  --ink-3: #7d8794;
+  --white: #ffffff;
+  --focus: #3987e5;
+  --ch-r: #d9675f;
+  --ch-g: #5fae6a;
+  --ch-b: #5f8fd9;
+  --gap: clamp(12px, 1.1vw, 36px);
+  --font: "Instrument Sans", system-ui, sans-serif;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { margin: 0; height: 100%; background: var(--stage); color: var(--ink); font-family: var(--font); }
+body.running { cursor: none; }
+.stage {
+  height: 100vh;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  gap: var(--gap);
+  padding: var(--gap) calc(var(--gap) * 1.5);
+}
+
+/* top: the sequence and the narration */
+.top { display: grid; grid-template-columns: auto 1fr; align-items: end; gap: calc(var(--gap) * 3); }
+.steps { list-style: none; margin: 0; padding: 0; display: flex; gap: calc(var(--gap) * 1.6); counter-reset: step; }
+.steps li { counter-increment: step; color: var(--ink-3); font-size: clamp(14px, 1.05vw, 34px); font-weight: 500;
+  padding-bottom: 0.45em; border-bottom: 3px solid transparent; white-space: nowrap; transition: color .3s, border-color .3s; }
+.steps li::before { content: counter(step); font-variant-numeric: tabular-nums; margin-right: .45em; font-weight: 600; }
+.steps li.done { color: var(--ink-2); }
+.steps li.now { color: var(--ink); border-bottom-color: var(--white); }
+.say { margin: 0; font-size: clamp(22px, 2.05vw, 66px); font-weight: 500; font-stretch: 92%; line-height: 1.15;
+  text-align: right; min-height: 1.15em; transition: opacity .18s; }
+.say.fade { opacity: 0; }
+.say.error { color: #ff9b8f; }
+
+/* middle: camera and chart */
+.views { display: grid; grid-template-columns: 47fr 53fr; gap: var(--gap); min-height: 0; }
+figure { margin: 0; min-height: 0; position: relative; display: grid; grid-template-rows: 1fr auto; gap: .6em; }
+figcaption { color: var(--ink-3); font-size: clamp(12px, .8vw, 26px); }
+.cam { grid-template-rows: auto auto; align-content: start; }
+.cam .frame { background: #000; border-radius: 10px; overflow: hidden; aspect-ratio: 16 / 9; width: 100%; }
+.cam img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.chart .frame { background: var(--panel); border-radius: 10px; position: relative; min-height: 0; overflow: hidden; }
+.chart canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.hero { position: absolute; top: calc(var(--gap) * 1.2); right: calc(var(--gap) * 1.4); text-align: right; pointer-events: none; }
+.hero .num { font-size: clamp(30px, 3.1vw, 100px); font-weight: 600; font-variant-numeric: tabular-nums; line-height: 1; letter-spacing: -0.01em; }
+.hero .lbl { color: var(--ink-2); font-size: clamp(12px, .85vw, 28px); margin-top: .35em; }
+.hero .num.ok { color: var(--white); text-shadow: 0 0 .5em rgba(255,255,255,.35); }
+.math { position: absolute; left: calc(var(--gap) * 1.2); top: calc(var(--gap) * 1.2); max-width: 46%;
+  background: rgba(21,26,33,.88); border: 1px solid var(--line); border-radius: 8px; padding: .9em 1.1em;
+  font-size: clamp(12px, .85vw, 28px); line-height: 1.45; opacity: 0; transition: opacity .3s; pointer-events: none; }
+.math.show { opacity: 1; }
+.math h3 { margin: 0 0 .3em; font-size: 1.15em; font-weight: 600; }
+.math .eq { color: var(--ink-2); margin-bottom: .5em; }
+.math table { border-collapse: collapse; font-variant-numeric: tabular-nums; margin-bottom: .5em; }
+.math td { padding: .05em .9em .05em 0; }
+.math td:first-child { color: var(--ink-2); }
+.math .count, .math .best { font-variant-numeric: tabular-nums; }
+.math .best { color: var(--white); font-weight: 600; }
+.tip { position: absolute; pointer-events: none; background: var(--stage); border: 1px solid var(--line); border-radius: 6px;
+  padding: .35em .6em; font-size: clamp(12px, .75vw, 24px); font-variant-numeric: tabular-nums; display: none; }
+
+/* intro, on top of the chart before the first run */
+.intro { position: absolute; inset: 0; display: grid; align-content: center; gap: 1.1em; padding: 8%;
+  background: var(--panel); border-radius: 10px; }
+.intro h1 { margin: 0; font-size: clamp(34px, 3.6vw, 116px); font-weight: 600; font-stretch: 85%; line-height: 1.02; letter-spacing: -0.015em; }
+.intro p { margin: 0; color: var(--ink-2); font-size: clamp(15px, 1.15vw, 38px); line-height: 1.45; max-width: 34em; }
+button { font: inherit; font-size: clamp(16px, 1.15vw, 38px); font-weight: 600; color: var(--stage); background: var(--white);
+  border: 0; border-radius: 999px; padding: .7em 1.5em; cursor: pointer; justify-self: start; }
+button:focus-visible { outline: 3px solid var(--focus); outline-offset: 4px; }
+button:disabled { opacity: .5; cursor: default; }
+.hint { color: var(--ink-3) !important; font-size: clamp(12px, .85vw, 28px) !important; }
+
+/* bottom: one card per monitor and the command log */
+.monitors { display: grid; grid-template-columns: repeat(3, 1fr) 0.9fr; gap: var(--gap); }
+.mon { background: var(--panel); border-radius: 10px; padding: calc(var(--gap) * 1.1) calc(var(--gap) * 1.3);
+  border: 2px solid transparent; transition: border-color .3s; display: grid; gap: .55em; font-size: clamp(13px, .95vw, 30px); }
+.mon.look { border-color: var(--c); }
+.mon header { display: flex; align-items: baseline; gap: .6em; }
+.mon .dot { width: .8em; height: .8em; border-radius: 50%; background: var(--c); align-self: center; flex: none; }
+.mon .name { font-weight: 600; font-size: 1.2em; }
+.mon .model { color: var(--ink-3); }
+.mon .status { margin-left: auto; color: var(--ink-2); }
+.mon .status.ok { color: var(--white); font-weight: 600; }
+.bars { display: grid; grid-template-columns: auto 1fr 2.2em; align-items: center; gap: .3em .7em; font-variant-numeric: tabular-nums; }
+.bars span:nth-child(3n+1) { color: var(--ink-2); }
+.bar { height: .55em; background: var(--line); border-radius: 999px; overflow: hidden; }
+.bar i { display: block; height: 100%; width: 100%; border-radius: 999px; transition: width .45s cubic-bezier(.3,.7,.3,1); }
+.bar.r i { background: var(--ch-r); } .bar.g i { background: var(--ch-g); } .bar.b i { background: var(--ch-b); }
+.bars .val { text-align: right; }
+.readout { display: flex; justify-content: space-between; align-items: baseline; font-variant-numeric: tabular-nums; }
+.readout .cct { font-size: 1.6em; font-weight: 600; }
+.readout .err { color: var(--ink-2); }
+.log { font-family: ui-monospace, "DejaVu Sans Mono", monospace; font-size: clamp(11px, .72vw, 23px); color: var(--ink-3);
+  display: flex; flex-direction: column; justify-content: flex-end; gap: .3em; overflow: hidden; padding: .4em 0; }
+.log div:last-child { color: var(--ink-2); }
+
+/* the bow */
+.finale { position: fixed; inset: 0; z-index: 9; display: grid; grid-template-columns: 1.3fr 1fr; align-items: center;
+  gap: 4vw; padding: 3vw 4vw; background: var(--stage); opacity: 0; pointer-events: none; transition: opacity .9s; }
+.finale.show { opacity: 1; pointer-events: auto; }
+.fin-cam { margin: 0; display: grid; gap: .7em; }
+.fin-cam .frame { border-radius: 12px; overflow: hidden; aspect-ratio: 16 / 9; background: #000; }
+.fin-cam img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.fin-side { display: grid; justify-items: center; text-align: center; gap: 1.4vw; }
+.clawd { width: min(24vw, 46vh); height: auto; overflow: visible; }
+.clawd rect { fill: #d77757; }
+.clawd .upper { transform-box: view-box; transform-origin: 9px 8px; transition: transform .95s cubic-bezier(.5, 0, .25, 1); }
+.clawd.down .upper { transform: scaleY(.62); }
+.clawd.nod .upper { transform: scaleY(.84); transition-duration: .6s; }
+.finale .big { margin: 0; font-size: clamp(48px, 6.4vw, 220px); font-weight: 600; font-stretch: 80%; line-height: .95; letter-spacing: -0.02em; }
+.finale .sub { margin: 0; color: var(--ink-2); font-size: clamp(16px, 1.4vw, 46px); font-variant-numeric: tabular-nums; }
+.finale button { display: none; justify-self: center; }
+.finale.done button { display: inline-block; }
+
+/* black until a run starts */
+.blackout { position: fixed; inset: 0; z-index: 20; background: #000; cursor: none; transition: opacity 1.2s ease; }
+.blackout.out { opacity: 0; pointer-events: none; }
+
+/* the wake: two eyes open before the run */
+.wake { position: fixed; inset: 0; z-index: 10; display: grid; place-content: center; justify-items: center; gap: 7vh;
+  background: radial-gradient(ellipse at 50% 45%, #10151c 0%, #07090c 70%); transition: opacity 1.4s ease; }
+.wake.out { opacity: 0; pointer-events: none; }
+.eyes { display: flex; gap: 9vw; filter: drop-shadow(0 0 2.2vw rgba(214, 228, 255, .32)); }
+.eye { width: 25vw; aspect-ratio: 2 / 1.1; position: relative; }
+.ball { position: absolute; inset: 0; overflow: hidden;
+  background: radial-gradient(ellipse at 50% 40%, #ffffff 0%, #eef2f7 50%, #aeb8c6 100%);
+  clip-path: ellipse(50% 0% at 50% 50%);
+  transition: clip-path 1.4s cubic-bezier(.55, 0, .25, 1); }
+.ball::after { content: ""; position: absolute; inset: 0; box-shadow: inset 0 2.4vw 2.6vw -1.2vw rgba(20, 26, 36, .45); }
+.iris { position: absolute; left: 50%; top: 50%; width: 46%; aspect-ratio: 1; margin: -23% 0 0 -23%;
+  border-radius: 50%; overflow: hidden; background: #1c2531;
+  transform: translate(var(--lx, 0), var(--ly, 0)); transition: transform .95s cubic-bezier(.45, 0, .2, 1); }
+.iris img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: .82; filter: saturate(.75) contrast(1.05); }
+.iris::before { content: ""; position: absolute; inset: 0; border-radius: 50%; z-index: 1;
+  background: radial-gradient(circle, transparent 40%, rgba(12, 18, 26, .55) 72%, rgba(8, 12, 18, .95) 100%); }
+.pupil { position: absolute; left: 50%; top: 50%; width: 36%; aspect-ratio: 1; transform: translate(-50%, -50%);
+  border-radius: 50%; background: #030405; z-index: 2; transition: width .8s ease; }
+.pupil::after { content: ""; position: absolute; width: 26%; aspect-ratio: 1; left: 18%; top: 14%; border-radius: 50%;
+  background: rgba(255, 255, 255, .85); }
+.eye.focus .pupil { width: 27%; }
+.whisper { margin: 0; min-height: 1.2em; color: var(--ink-2); font-size: clamp(22px, 2.4vw, 78px); font-weight: 500;
+  font-stretch: 90%; letter-spacing: .01em; transition: opacity .5s; }
+.whisper.fade { opacity: 0; }
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; }
+}
+</style>
+</head>
+<body>
+<main class="stage">
+  <header class="top">
+    <ol class="steps" id="steps">
+      <li>Reset</li><li>Look</li><li>Test</li><li>Solve</li><li>Match</li><li>Bow</li>
+    </ol>
+    <p class="say" id="say" aria-live="polite"></p>
+  </header>
+
+  <section class="views">
+    <figure class="cam">
+      <div class="frame"><img id="cam" src="/stream.mjpg" alt="Live camera view of the monitors"></div>
+      <figcaption>Live camera at head height, white balance fixed at 6500 K</figcaption>
+    </figure>
+    <figure class="chart">
+      <div class="frame" id="chartframe">
+        <canvas id="chart" role="img" aria-label="White point of each monitor on the CIE 1976 u′v′ diagram"></canvas>
+        <div class="hero" id="hero" hidden><div class="num" id="heronum">0.0000</div><div class="lbl" id="herolbl">Largest difference between monitors</div></div>
+        <div class="math" id="math"></div>
+        <div class="tip" id="tip"></div>
+        <div class="intro" id="intro">
+          <h1>I have eyes now.</h1>
+          <p>Let me use them. I will look at your monitors, test their colors, and make their whites match daylight.</p>
+          <button id="start">Wake me up</button>
+          <p class="hint">Space also starts.</p>
+        </div>
+      </div>
+      <figcaption>White point of each monitor, CIE 1976 u′v′. Closer dots look more alike.</figcaption>
+    </figure>
+  </section>
+
+  <section class="monitors" id="monitors">
+    <aside class="log" id="log" aria-label="Commands sent"></aside>
+  </section>
+</main>
+
+<div class="blackout" id="blackout" aria-hidden="true"></div>
+
+<div class="wake" id="wake" hidden aria-hidden="true">
+  <div class="eyes">
+    <div class="eye"><div class="ball"><div class="iris"><img alt=""><div class="pupil"></div></div></div></div>
+    <div class="eye"><div class="ball"><div class="iris"><img alt=""><div class="pupil"></div></div></div></div>
+  </div>
+  <p class="whisper" id="whisper"></p>
+</div>
+
+<div class="finale" id="finale">
+  <figure class="fin-cam">
+    <div class="frame"><img id="fincam" alt="Live camera view while bowing"></div>
+    <figcaption>Live camera: what I see</figcaption>
+  </figure>
+  <div class="fin-side">
+    <svg class="clawd" id="clawd" viewBox="0 0 18 10" aria-hidden="true"></svg>
+    <p class="big">Thank you</p>
+    <p class="sub" id="finsub"></p>
+    <button id="again">Run again</button>
+  </div>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+const css = getComputedStyle(document.documentElement);
+const tok = n => css.getPropertyValue(n).trim();
+const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+// The monitors come from the server's configuration, left to right: {id, name, short, model, color}.
+let IDS = [];
+const INFO = {}, COLORS = {};
+function setMonitors(list) {
+  IDS = list.map(m => m.id);
+  for (const m of list) { INFO[m.id] = m; COLORS[m.id] = m.color; }
+  S = freshState();
+  buildCards();
+}
+
+function freshState() {
+  return {
+    target: null, jnd: 0.002, planck: [], daylight: [], card: null, look: null, phase: 0,
+    final: false, mathFor: null,
+    mons: Object.fromEntries(IDS.map(id => [id, {
+      trail: [], cur: null, shown: null, base: null, probes: [], tries: [], J: null, cloud: null,
+      gains: { r: 50, g: 50, b: 50 }, status: '',
+    }])),
+  };
+}
+let S = freshState();
+
+/* ---------- monitor cards ---------- */
+function buildCards() {
+  document.querySelectorAll('.mon').forEach(el => el.remove());
+  const box = $('#monitors'), logEl = $('#log');
+  box.style.gridTemplateColumns = `repeat(${IDS.length}, 1fr) 0.9fr`;
+  for (const id of IDS) {
+    const info = INFO[id], el = document.createElement('article');
+    el.className = 'mon'; el.dataset.id = id; el.style.setProperty('--c', info.color);
+    box.insertBefore(el, logEl);
+    el.innerHTML = `
+      <header><span class="dot"></span><span class="name">${info.name}</span>
+        <span class="status" data-k="status"></span></header>
+      <div class="model">${info.model}</div>
+      <div class="bars">
+        <span>Red</span><div class="bar r"><i data-k="r"></i></div><span class="val" data-k="rv">50</span>
+        <span>Green</span><div class="bar g"><i data-k="g"></i></div><span class="val" data-k="gv">50</span>
+        <span>Blue</span><div class="bar b"><i data-k="b"></i></div><span class="val" data-k="bv">50</span>
+      </div>
+      <div class="readout"><span class="cct" data-k="cct">– K</span><span class="err" data-k="err">not measured yet</span></div>`;
+  }
+}
+function card(id) { return document.querySelector(`.mon[data-id="${id}"]`); }
+function setText(id, k, t) { card(id).querySelector(`[data-k="${k}"]`).textContent = t; }
+function renderGains(id) {
+  const g = S.mons[id].gains, c = card(id);
+  for (const ch of 'rgb') {
+    c.querySelector(`[data-k="${ch}"]`).style.width = `${(g[ch] / 50) * 100}%`;
+    setText(id, ch + 'v', g[ch]);
+  }
+}
+function setStatus(id, text, ok = false) {
+  const el = card(id).querySelector('[data-k="status"]');
+  el.textContent = text; el.classList.toggle('ok', ok);
+}
+function dist(a, b) { return Math.hypot(a.u - b.u, a.v - b.v); }
+function renderReadout(id) {
+  const m = S.mons[id];
+  if (!m.cur) return;
+  setText(id, 'cct', `${m.cur.cct} K`);
+  if (S.target) setText(id, 'err', `${dist(m.cur, S.target).toFixed(4)} from target`);
+}
+
+/* ---------- narration, steps, log ---------- */
+let sayTimer = null;
+function say(text, error = false) {
+  const el = $('#say');
+  if (reduced) { el.textContent = text; el.classList.toggle('error', error); return; }
+  el.classList.add('fade');
+  clearTimeout(sayTimer);
+  sayTimer = setTimeout(() => { el.textContent = text; el.classList.toggle('error', error); el.classList.remove('fade'); }, 180);
+}
+function setPhase(n) {
+  S.phase = n;
+  document.querySelectorAll('#steps li').forEach((li, i) => {
+    li.classList.toggle('done', i + 1 < n);
+    li.classList.toggle('now', i + 1 === n);
+  });
+}
+function log(text) {
+  const el = $('#log'), d = document.createElement('div');
+  d.textContent = text; el.appendChild(d);
+  while (el.children.length > 7) el.firstChild.remove();
+}
+function heroUpdate() {
+  const pts = IDS.map(id => S.mons[id].cur).filter(Boolean);
+  if (pts.length < 2) return;
+  let worst = 0;
+  for (let i = 0; i < pts.length; i++) for (let j = i + 1; j < pts.length; j++) worst = Math.max(worst, dist(pts[i], pts[j]));
+  $('#hero').hidden = false;
+  $('#heronum').textContent = worst.toFixed(4);
+  $('#heronum').classList.toggle('ok', worst < S.jnd);
+  $('#herolbl').textContent = worst < S.jnd ? 'Largest difference: below what eyes see' : 'Largest difference between monitors';
+}
+
+/* ---------- the math panel during the solve ---------- */
+function fmt(x) { return (x >= 0 ? '+' : '−') + Math.abs(x).toFixed(4); }
+function renderMath(id, shownIndex) {
+  const m = S.mons[id], c = m.cloud;
+  if (!c) return;
+  let best = c.steps[0];
+  for (const s of c.steps) if (s.i <= shownIndex) best = s;
+  const n = Math.min(c.points.length, shownIndex + 1);
+  const J = c.J;
+  $('#math').innerHTML = `
+    <h3>${INFO[id].name}</h3>
+    <div class="eq">white = measured + J × steps down</div>
+    <table>
+      <tr><td></td><td>u′ per step</td><td>v′ per step</td></tr>
+      <tr><td>Red</td><td>${fmt(J[0][0])}</td><td>${fmt(J[0][1])}</td></tr>
+      <tr><td>Green</td><td>${fmt(J[1][0])}</td><td>${fmt(J[1][1])}</td></tr>
+      <tr><td>Blue</td><td>${fmt(J[2][0])}</td><td>${fmt(J[2][1])}</td></tr>
+    </table>
+    <div class="count">Tried ${n.toLocaleString('en-US')} of ${c.points.length.toLocaleString('en-US')} settings</div>
+    <div class="best">Best: red ${best.gains[0]}, green ${best.gains[1]}, blue ${best.gains[2]}, ${best.err.toFixed(4)} off</div>`;
+}
+
+/* ---------- chart ---------- */
+const canvas = $('#chart'), ctx = canvas.getContext('2d');
+let view = null;          // {cu, cv, span} eased toward the fitted view
+function resize() {
+  const r = canvas.getBoundingClientRect(), dpr = devicePixelRatio || 1;
+  canvas.width = Math.round(r.width * dpr); canvas.height = Math.round(r.height * dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+addEventListener('resize', resize);
+
+function fitView() {
+  const pts = [];
+  if (S.target) {
+    const r = S.jnd * 1.6;
+    pts.push({ u: S.target.u - r, v: S.target.v - r }, { u: S.target.u + r, v: S.target.v + r });
+  }
+  for (const id of IDS) {
+    const m = S.mons[id];
+    if (S.final) { if (m.cur) pts.push(m.cur); continue; }
+    pts.push(...m.trail);
+    if (S.phase >= 3 && S.phase <= 4) pts.push(...m.probes);
+    if (m.cloud && m.cloud.best) pts.push(m.cloud.best);
+  }
+  if (S.card && !S.final) pts.push(S.card);
+  if (!pts.length) return { cu: 0.2044, cv: 0.4807, span: 0.02 };
+  let u0 = Infinity, u1 = -Infinity, v0 = Infinity, v1 = -Infinity;
+  for (const p of pts) { u0 = Math.min(u0, p.u); u1 = Math.max(u1, p.u); v0 = Math.min(v0, p.v); v1 = Math.max(v1, p.v); }
+  const W = canvas.clientWidth, H = canvas.clientHeight;
+  const span = Math.max((u1 - u0) / (W / Math.min(W, H)), (v1 - v0) / (H / Math.min(W, H)), S.final ? 0.0045 : 0.008) * 1.45;
+  return { cu: (u0 + u1) / 2, cv: (v0 + v1) / 2, span };
+}
+
+function draw(now) {
+  const W = canvas.clientWidth, H = canvas.clientHeight;
+  ctx.clearRect(0, 0, W, H);
+  const want = fitView();
+  if (!view || reduced) view = { ...want };
+  else for (const k of ['cu', 'cv', 'span']) view[k] += (want[k] - view[k]) * 0.07;
+  const scale = Math.min(W, H) / view.span;          // px per u'v' unit, same on both axes
+  const X = u => W / 2 + (u - view.cu) * scale;
+  const Y = v => H / 2 - (v - view.cv) * scale;
+
+  // grid
+  const stepCands = [0.001, 0.002, 0.005, 0.01, 0.02];
+  const step = stepCands.find(s => s * scale > 110) || 0.02;
+  ctx.lineWidth = 1; ctx.strokeStyle = tok('--line'); ctx.fillStyle = tok('--ink-3');
+  ctx.font = `${Math.max(12, Math.round(W / 95))}px ${tok('--font')}`;
+  const uMin = view.cu - W / 2 / scale, uMax = view.cu + W / 2 / scale;
+  const vMin = view.cv - H / 2 / scale, vMax = view.cv + H / 2 / scale;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+  for (let u = Math.ceil(uMin / step) * step; u < uMax; u += step) {
+    ctx.beginPath(); ctx.moveTo(X(u), 0); ctx.lineTo(X(u), H); ctx.stroke();
+    ctx.fillText(u.toFixed(3), X(u), H - 8);
+  }
+  ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+  for (let v = Math.ceil(vMin / step) * step; v < vMax; v += step) {
+    ctx.beginPath(); ctx.moveTo(0, Y(v)); ctx.lineTo(W, Y(v)); ctx.stroke();
+    ctx.fillText(v.toFixed(3), 10, Y(v) - 12);
+  }
+  ctx.textAlign = 'right'; ctx.textBaseline = 'bottom';
+  ctx.fillText('u′ →', W - 12, H - 30);
+  ctx.save(); ctx.translate(14, 40); ctx.textAlign = 'left'; ctx.fillText('v′ ↑', 0, 0); ctx.restore();
+
+  // loci
+  const poly = (pts, dash) => {
+    ctx.setLineDash(dash); ctx.beginPath();
+    pts.forEach(([, u, v], i) => i ? ctx.lineTo(X(u), Y(v)) : ctx.moveTo(X(u), Y(v)));
+    ctx.stroke(); ctx.setLineDash([]);
+  };
+  ctx.strokeStyle = tok('--ink-3'); ctx.lineWidth = 2;
+  if (S.planck.length) poly(S.planck, []);
+  ctx.lineWidth = 1.5;
+  if (S.daylight.length) poly(S.daylight, [6, 6]);
+  ctx.fillStyle = tok('--ink-3'); ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+  for (const [t, u, v] of S.planck) {
+    if (t % 500 || u < uMin || u > uMax || v < vMin || v > vMax) continue;
+    ctx.beginPath(); ctx.arc(X(u), Y(v), 3, 0, 7); ctx.fill();
+    ctx.fillText(`${t} K`, X(u) + 8, Y(v) + 6);
+  }
+  if (S.daylight.length) {
+    const lab = S.daylight.find(([t, u, v]) => u > uMin && u < uMax && v > vMin && v < vMax && t % 1000 === 0);
+    if (lab) { ctx.textBaseline = 'bottom'; ctx.fillText('daylight', X(lab[1]) + 8, Y(lab[2]) - 6); }
+  }
+
+  // target and the "people see this" circle
+  if (S.target) {
+    const tx = X(S.target.u), ty = Y(S.target.v), r = S.jnd * scale;
+    ctx.strokeStyle = 'rgba(255,255,255,.55)'; ctx.lineWidth = 1.5; ctx.setLineDash([5, 6]);
+    ctx.beginPath(); ctx.arc(tx, ty, r, 0, 7); ctx.stroke(); ctx.setLineDash([]);
+    const glow = S.final ? 0.35 + 0.15 * Math.sin(now / 400) : 0.18;
+    ctx.fillStyle = `rgba(255,255,255,${glow})`; ctx.beginPath(); ctx.arc(tx, ty, Math.min(r, 34), 0, 7); ctx.fill();
+    ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(tx, ty, 7, 0, 7); ctx.fill();
+    ctx.fillStyle = tok('--ink'); ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+    ctx.font = `600 ${Math.max(13, Math.round(W / 80))}px ${tok('--font')}`;
+    ctx.fillText(`Target: daylight ${S.target.T} K`, tx + r + 10, ty - 12);
+    ctx.font = `${Math.max(12, Math.round(W / 95))}px ${tok('--font')}`;
+    ctx.fillStyle = tok('--ink-2');
+    ctx.fillText(`ring: ${S.jnd}, the smallest step most people see`, tx + r + 10, ty + 14);
+  }
+
+  // reference card
+  if (S.card) {
+    const x = X(S.card.u), y = Y(S.card.v);
+    ctx.strokeStyle = tok('--ink'); ctx.lineWidth = 2; ctx.strokeRect(x - 7, y - 7, 14, 14);
+    ctx.fillStyle = tok('--ink-2'); ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+    ctx.fillText('White card', x - 14, y);
+  }
+
+  ctx.font = `600 ${Math.max(13, Math.round(W / 80))}px ${tok('--font')}`;
+  for (const id of IDS) {
+    const m = S.mons[id], col = COLORS[id];
+
+    // solver cloud: predictions for every gain setting, revealed over time
+    if (m.cloud) {
+      const c = m.cloud, t = reduced || c.replay ? 1 : Math.min(1, (now - c.t0) / c.dur);
+      const n = Math.floor(t * c.points.length);
+      ctx.fillStyle = col; ctx.globalAlpha = S.phase === 4 ? 0.3 : 0.05;
+      for (let i = 0; i < n; i++) { const [u, v] = c.points[i]; ctx.fillRect(X(u) - 2, Y(v) - 2, 4, 4); }
+      ctx.globalAlpha = 1;
+      if (S.mathFor === id) renderMath(id, n - 1);
+      if (t >= 1 && !S.final) {
+        const bx = X(c.best.u), by = Y(c.best.v);
+        ctx.strokeStyle = col; ctx.lineWidth = 3;
+        ctx.beginPath(); ctx.arc(bx, by, 13 + 3 * Math.sin(now / 180), 0, 7); ctx.stroke();
+      }
+    }
+
+    // probes: arrows from the factory white, one per channel turned down
+    if (m.base && S.phase >= 3 && S.phase <= 4) {
+      const bx = X(m.base.u), by = Y(m.base.v);
+      for (const p of m.probes) {
+        const px = X(p.u), py = Y(p.v);
+        ctx.strokeStyle = col; ctx.lineWidth = 2; ctx.setLineDash([4, 5]);
+        ctx.beginPath(); ctx.moveTo(bx, by); ctx.lineTo(px, py); ctx.stroke(); ctx.setLineDash([]);
+        ctx.fillStyle = col; ctx.beginPath(); ctx.arc(px, py, 5, 0, 7); ctx.fill();
+        ctx.fillStyle = tok('--ink-2'); ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+        ctx.fillText({ r: 'less red', g: 'less green', b: 'less blue' }[p.ch], px + 9, py);
+      }
+    }
+
+    // refine tries
+    ctx.strokeStyle = col; ctx.lineWidth = 2;
+    for (const p of m.tries) { ctx.beginPath(); ctx.arc(X(p.u), Y(p.v), 6, 0, 7); ctx.stroke(); }
+
+    // trail and current point (eased)
+    if (m.trail.length) {
+      ctx.strokeStyle = col; ctx.globalAlpha = 0.55; ctx.lineWidth = 2;
+      ctx.beginPath(); m.trail.forEach((p, i) => i ? ctx.lineTo(X(p.u), Y(p.v)) : ctx.moveTo(X(p.u), Y(p.v)));
+      ctx.stroke(); ctx.globalAlpha = 1;
+    }
+    if (m.cur) {
+      if (!m.shown || reduced) m.shown = { ...m.cur };
+      m.shown.u += (m.cur.u - m.shown.u) * 0.12; m.shown.v += (m.cur.v - m.shown.v) * 0.12;
+      const x = X(m.shown.u), y = Y(m.shown.v);
+      const r = S.look === id ? 13 : 11;
+      ctx.fillStyle = tok('--panel'); ctx.beginPath(); ctx.arc(x, y, r + 3, 0, 7); ctx.fill();
+      ctx.fillStyle = col; ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill();
+      ctx.fillStyle = tok('--ink'); ctx.textBaseline = 'middle';
+      const i = IDS.indexOf(id), dx = i === 0 && IDS.length > 1 ? -1 : 1, dy = IDS.length === 3 ? [0, -1, 1][i] : 0;
+      ctx.textAlign = dx < 0 ? 'right' : 'left';
+      ctx.fillText(INFO[id].short, x + dx * (r + 10), y + dy * (S.final ? 22 : 0));
+    }
+  }
+  requestAnimationFrame(draw);
+}
+
+/* hover: nearest measured point */
+canvas.addEventListener('mousemove', e => {
+  if (!view) return;
+  const r = canvas.getBoundingClientRect(), W = r.width, H = r.height, scale = Math.min(W, H) / view.span;
+  const pts = [];
+  for (const id of IDS) if (S.mons[id].cur) pts.push([INFO[id].name, S.mons[id].cur]);
+  if (S.card) pts.push(['White card', S.card]);
+  if (S.target) pts.push([`Target, daylight ${S.target.T} K`, S.target]);
+  let best = null;
+  for (const [name, p] of pts) {
+    const x = W / 2 + (p.u - view.cu) * scale, y = H / 2 - (p.v - view.cv) * scale;
+    const d = Math.hypot(x - (e.clientX - r.left), y - (e.clientY - r.top));
+    if (d < 28 && (!best || d < best.d)) best = { d, name, p, x, y };
+  }
+  const tip = $('#tip');
+  if (!best) { tip.style.display = 'none'; return; }
+  tip.style.display = 'block';
+  tip.style.left = `${best.x + 18}px`; tip.style.top = `${best.y + 18}px`;
+  tip.textContent = `${best.name}: u′ ${best.p.u.toFixed(4)}, v′ ${best.p.v.toFixed(4)}${best.p.cct ? `, ${best.p.cct} K` : ''}`;
+});
+canvas.addEventListener('mouseleave', () => { $('#tip').style.display = 'none'; });
+
+/* ---------- sound: synthesized with Web Audio, no files ---------- */
+let AC = null, master = null;
+function audioInit() {
+  if (AC) { AC.resume(); return; }
+  AC = new AudioContext();
+  master = AC.createGain(); master.gain.value = 0.55;
+  const comp = AC.createDynamicsCompressor();
+  const conv = AC.createConvolver(), wet = AC.createGain();
+  const len = Math.floor(AC.sampleRate * 2.4), ir = AC.createBuffer(2, len, AC.sampleRate);
+  for (let c = 0; c < 2; c++) { const d = ir.getChannelData(c); for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 2.6); }
+  conv.buffer = ir; wet.gain.value = 0.28;
+  master.connect(comp); comp.connect(AC.destination);
+  master.connect(conv); conv.connect(wet); wet.connect(comp);
+}
+function tone({ f = 440, type = 'sine', dur = 0.3, vol = 0.2, attack = 0.005, slideTo = null, delay = 0 }) {
+  if (!AC) return;
+  const t = AC.currentTime + delay, o = AC.createOscillator(), g = AC.createGain();
+  o.type = type; o.frequency.setValueAtTime(f, t);
+  if (slideTo) o.frequency.exponentialRampToValueAtTime(slideTo, t + dur);
+  g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(vol, t + attack);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + Math.max(dur, attack + 0.01));
+  o.connect(g); g.connect(master); o.start(t); o.stop(t + dur + 0.05);
+}
+function noise({ dur = 0.4, vol = 0.1, f0 = 400, f1 = 4000, q = 1, delay = 0, rise = 0.3 }) {
+  if (!AC) return;
+  const t = AC.currentTime + delay, len = Math.floor(AC.sampleRate * dur), b = AC.createBuffer(1, len, AC.sampleRate);
+  const d = b.getChannelData(0); for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+  const src = AC.createBufferSource(), flt = AC.createBiquadFilter(), g = AC.createGain();
+  src.buffer = b; flt.type = 'bandpass'; flt.Q.value = q;
+  flt.frequency.setValueAtTime(f0, t); flt.frequency.exponentialRampToValueAtTime(f1, t + dur);
+  g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(vol, t + dur * rise); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  src.connect(flt); flt.connect(g); g.connect(master); src.start(t); src.stop(t + dur);
+}
+const SFX = {
+  wake() { tone({ f: 55, dur: 7, vol: 0.28, attack: 2.8 }); tone({ f: 82.4, dur: 7, vol: 0.12, attack: 3.4 });
+           noise({ dur: 5, vol: 0.05, f0: 160, f1: 900, q: 0.7, rise: 0.6 }); },
+  eyeOpen(dur) { noise({ dur: dur + 0.4, vol: 0.09, f0: 300, f1: 2600, q: 0.8, rise: 0.5 });
+                 tone({ f: 110, slideTo: 220, type: 'triangle', dur: dur + 0.4, vol: 0.07, attack: dur * 0.5 }); },
+  blink() { noise({ dur: 0.09, vol: 0.14, f0: 2400, f1: 700, q: 2, rise: 0.1 }); },
+  servo() { tone({ f: 170, slideTo: 250, type: 'sawtooth', dur: 0.95, vol: 0.035, attack: 0.1 });
+            noise({ dur: 0.95, vol: 0.035, f0: 1400, f1: 2600, q: 7, rise: 0.2 }); },
+  whisper() { tone({ f: 659.25, dur: 1.2, vol: 0.035, attack: 0.25 }); tone({ f: 987.8, dur: 1.0, vol: 0.02, attack: 0.3, delay: 0.05 }); },
+  phase() { tone({ f: 146.8, dur: 2.0, vol: 0.13, attack: 0.02 }); tone({ f: 220, dur: 1.8, vol: 0.06, delay: 0.04 }); },
+  sample() { for (let i = 0; i < 7; i++) tone({ f: 1300 + i * 170, dur: 0.06, vol: 0.045, delay: i * 0.055 }); },
+  gain(ch, v) { const base = { r: 330, g: 392, b: 494 }[ch]; tone({ f: base * (0.6 + 0.8 * v / 50), type: 'square', dur: 0.06, vol: 0.028 }); },
+  flash() { tone({ f: 92, slideTo: 44, dur: 0.6, vol: 0.32 }); noise({ dur: 0.3, vol: 0.08, f0: 3200, f1: 300, q: 1, rise: 0.05 }); },
+  meas(err) { const f = 520 + 900 * Math.max(0, 1 - err / 0.015); tone({ f, dur: 0.7, vol: 0.12 }); tone({ f: f * 2, dur: 0.45, vol: 0.035, delay: 0.02 }); },
+  compute(dur) { const n = Math.floor(dur * 30); for (let i = 0; i < n; i++) tone({ f: 700 + Math.random() * 2600, type: 'square', dur: 0.022, vol: 0.016, delay: i / 30 }); },
+  found(delay) { [880, 1318.5, 1760].forEach((f, i) => tone({ f, dur: 0.8, vol: 0.08, delay: delay + i * 0.08 })); },
+  matched() { [523.25, 659.25, 783.99, 1046.5].forEach((f, i) => tone({ f, type: 'triangle', dur: 1.8, vol: 0.12, delay: i * 0.13 })); },
+  bow() { [392, 523.25, 659.25].forEach(f => tone({ f, dur: 2.4, vol: 0.085, attack: 0.06 })); noise({ dur: 1.6, vol: 0.04, f0: 700, f1: 200, q: 0.7 }); },
+};
+function sfx(ev) {
+  if (!AC || ev.replay) return;
+  switch (ev.type) {
+    case 'wake': if (ev.step === 'start') SFX.wake(); break;
+    case 'eye':
+      if (ev.open) SFX.eyeOpen(ev.dur || 1.4);
+      if (ev.blink) SFX.blink();
+      if (ev.look) SFX.servo();
+      break;
+    case 'whisper': SFX.whisper(); break;
+    case 'phase': SFX.phase(); break;
+    case 'look': SFX.servo(); break;
+    case 'sample': SFX.sample(); break;
+    case 'gains': {
+      const old = S.mons[ev.id].gains;
+      for (const ch of 'rgb') if (old[ch] !== ev[ch]) (ev[ch] === 0 ? SFX.flash() : SFX.gain(ch, ev[ch]));
+      break;
+    }
+    case 'meas': if (ev.id !== 'card' && S.target) SFX.meas(dist(ev, S.target)); else SFX.meas(0.008); break;
+    case 'cloud': SFX.compute(3.2); SFX.found(3.25); break;
+    case 'matched': SFX.matched(); break;
+    case 'bow': if (ev.step === 'down') { SFX.servo(); SFX.bow(); } else if (ev.step === 'nod') SFX.servo(); break;
+  }
+}
+
+/* ---------- the mascot (the Claude Code logo, one rect per block pixel) ---------- */
+(function drawClawd() {
+  const rows = [
+    '   ############   ',
+    '   ##.######.##   ',
+    ' ################ ',
+    '   ############   ',
+    '    # #    # #    ',
+  ];
+  const ns = 'http://www.w3.org/2000/svg', svg = $('#clawd');
+  const upper = document.createElementNS(ns, 'g'); upper.setAttribute('class', 'upper');
+  const legs = document.createElementNS(ns, 'g');
+  rows.forEach((row, y) => [...row].forEach((ch, x) => {
+    if (ch !== '#') return;
+    const r = document.createElementNS(ns, 'rect');
+    r.setAttribute('x', x); r.setAttribute('y', y * 2); r.setAttribute('width', 1.03); r.setAttribute('height', 2.03);
+    (y < 4 ? upper : legs).appendChild(r);
+  }));
+  svg.append(legs, upper);
+})();
+function bow(ev) {
+  const c = $('#clawd');
+  if (ev.step === 'show') {
+    $('#finale').classList.add('show');
+    $('#fincam').src = '/stream.mjpg?bow=' + Math.random();
+  }
+  c.classList.toggle('down', ev.step === 'down');
+  c.classList.toggle('nod', ev.step === 'nod');
+}
+
+/* ---------- the wake ---------- */
+const balls = [...document.querySelectorAll('.ball')], irises = [...document.querySelectorAll('.iris')];
+function eyesOpen(pct, dur) {
+  for (const b of balls) { b.style.transitionDuration = `${dur}s`; b.style.clipPath = `ellipse(50% ${pct}% at 50% 50%)`; }
+}
+let openPct = 0;
+function eye(ev) {
+  if (ev.open !== undefined) { openPct = ev.open; eyesOpen(ev.open, ev.replay ? 0 : ev.dur || 1.4); }
+  if (ev.blink && !ev.replay) {
+    eyesOpen(0, 0.11);
+    setTimeout(() => eyesOpen(openPct, 0.2), 150);
+  }
+  if (ev.look) {
+    const [x, y] = { left: ['-48%', '4%'], right: ['48%', '4%'], center: ['0%', '0%'], down: ['0%', '22%'] }[ev.look];
+    for (const i of irises) { i.style.setProperty('--lx', x); i.style.setProperty('--ly', y); }
+  }
+  if (ev.focus !== undefined) document.querySelectorAll('.eye').forEach(e => e.classList.toggle('focus', ev.focus));
+}
+let whisperTimer = null;
+function whisper(text) {
+  const el = $('#whisper');
+  el.classList.add('fade'); clearTimeout(whisperTimer);
+  whisperTimer = setTimeout(() => { el.textContent = text; el.classList.remove('fade'); }, 450);
+}
+function wake(ev) {
+  const w = $('#wake');
+  if (ev.step === 'start') {
+    w.hidden = false; w.classList.remove('out'); $('#whisper').textContent = ''; openPct = 0;
+    eyesOpen(0, 0);
+    for (const img of w.querySelectorAll('img')) img.src = '/stream.mjpg?eye=' + Math.random();
+  } else {
+    w.classList.add('out');
+    setTimeout(() => { w.hidden = true; for (const img of w.querySelectorAll('img')) img.removeAttribute('src'); }, ev.replay ? 0 : 1500);
+  }
+}
+
+/* ---------- events ---------- */
+let bootId = null;
+function handle(ev) {
+  try { sfx(ev); } catch (e) { console.warn(e); }
+  switch (ev.type) {
+    case 'hello':
+      if (bootId) { location.reload(); return; }
+      bootId = ev.boot;
+      if (ev.running) document.body.classList.add('running');
+      setMonitors(ev.monitors || []);
+      for (const [id, g] of Object.entries(ev.gains || {})) if (S.mons[id]) { S.mons[id].gains = g; renderGains(id); }
+      break;
+    case 'init': {
+      $('#blackout').classList.add('out');
+      if (ev.monitors && ev.monitors.length !== IDS.length) setMonitors(ev.monitors);
+      S = freshState();
+      Object.assign(S, { target: ev.target, jnd: ev.jnd, planck: ev.planck, daylight: ev.daylight });
+      for (const [id, g] of Object.entries(ev.gains || {})) S.mons[id].gains = { ...g };
+      $('#intro').hidden = true; $('#hero').hidden = true; $('#math').classList.remove('show');
+      $('#finale').classList.remove('show', 'done'); $('#log').innerHTML = '';
+      document.body.classList.add('running');
+      for (const id of IDS) { setStatus(id, ''); setText(id, 'cct', '– K'); setText(id, 'err', 'not measured yet'); renderGains(id); }
+      break;
+    }
+    case 'phase':
+      setPhase(ev.n);
+      $('#math').classList.toggle('show', ev.n === 4);
+      if (ev.n === 1) for (const id of IDS) setStatus(id, 'Factory');
+      break;
+    case 'say': say(ev.text); break;
+    case 'wake': wake(ev); break;
+    case 'eye': eye(ev); break;
+    case 'whisper': if (!ev.replay) whisper(ev.text); break;
+    case 'log': log(ev.text); break;
+    case 'error': say(ev.text, true); document.body.classList.remove('running'); break;
+    case 'gains':
+      S.mons[ev.id].gains = { r: ev.r, g: ev.g, b: ev.b }; renderGains(ev.id); break;
+    case 'look':
+      S.look = ev.id;
+      document.querySelectorAll('.mon').forEach(el => el.classList.toggle('look', el.dataset.id === ev.id));
+      if (S.mons[ev.id]) setStatus(ev.id, { 2: 'Looking', 3: 'Testing', 5: 'Checking' }[S.phase] || '');
+      break;
+    case 'meas': {
+      if (ev.id === 'card') { S.card = ev; break; }
+      const m = S.mons[ev.id];
+      if (ev.kind === 'start' || ev.kind === 'verify') {
+        m.trail.push(ev); m.cur = ev; renderReadout(ev.id); heroUpdate();
+        if (ev.kind === 'start') setStatus(ev.id, 'Measured');
+        else { const e = dist(ev, S.target); setStatus(ev.id, e < S.jnd ? 'Matched' : 'Close', e < S.jnd); }
+      } else if (ev.kind === 'base') { m.base = ev; m.probes = []; }
+      else if (ev.kind === 'probe') m.probes.push(ev);
+      else if (ev.kind === 'try') m.tries.push(ev);
+      break;
+    }
+    case 'jac': S.mons[ev.id].J = ev.J; setStatus(ev.id, 'Tested'); break;
+    case 'cloud':
+      S.mons[ev.id].cloud = { points: ev.points, steps: ev.steps, best: ev.best, J: ev.J,
+        t0: performance.now(), dur: 3200, replay: !!ev.replay };
+      S.mathFor = ev.id; setStatus(ev.id, 'Solved');
+      break;
+    case 'matched':
+      S.final = true;
+      document.querySelectorAll('.mon').forEach(el => el.classList.remove('look'));
+      $('#finsub').textContent = `Largest difference ${ev.start.toFixed(4)} before, ${ev.spread.toFixed(4)} after`;
+      heroUpdate();
+      break;
+    case 'bow': bow(ev); break;
+    case 'done':
+      $('#finale').classList.add('done'); document.body.classList.remove('running');
+      setPhase(7);
+      break;
+  }
+}
+
+function start() {
+  try { audioInit(); } catch (e) { console.warn('no sound', e); }
+  $('#start').disabled = true;
+  fetch('/start', { method: 'POST' }).finally(() => { $('#start').disabled = false; });
+}
+$('#start').addEventListener('click', start);
+$('#again').addEventListener('click', start);
+addEventListener('keydown', e => {
+  const go = e.key === ' ' || e.key === 'Enter' || e.code === 'Space' || e.code === 'Enter';
+  if (go && !document.body.classList.contains('running')) { e.preventDefault(); start(); }
+});
+
+resize();
+requestAnimationFrame(draw);
+const camImg = $('#cam');
+camImg.addEventListener('error', () => setTimeout(() => { camImg.src = '/stream.mjpg?' + Date.now(); }, 1000));
+let es = null, lastMsg = Date.now();
+function connect() {
+  if (es) es.close();
+  es = new EventSource('/events');
+  es.onmessage = e => { lastMsg = Date.now(); handle(JSON.parse(e.data)); };
+  es.onerror = () => { if (es.readyState === EventSource.CLOSED) setTimeout(connect, 1500); };
+}
+setInterval(() => { if (Date.now() - lastMsg > 15000) { lastMsg = Date.now(); connect(); } }, 5000);
+connect();
+</script>
+</body>
+</html>
