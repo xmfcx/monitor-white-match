@@ -98,6 +98,7 @@ class Show:
         self.mons = cfg["monitors"]
         self.card = cfg.get("card")
         self.save = save
+        self.cam_bias = None
         self.running = False
         self.gains = {m["id"]: ddc.get_gains(m["bus"]) for m in self.mons}
 
@@ -139,6 +140,14 @@ class Show:
         if ov:
             self.cam.overlay = dict(ov, reading=True)
         r = self.cam.measure(tgt["roi"])
+        # More than half the box near the top of the camera range: lower the
+        # exposure and read again (needs camera.brightness in the configuration).
+        while r["clip"] > 0.5 and self.cam_bias:
+            self.cam_bias = max(0, self.cam_bias - 10)
+            self.cam.ctl("brightness", self.cam_bias)
+            BUS.emit("log", text=f"v4l2-ctl brightness {self.cam_bias} (the screen is too bright for the camera)")
+            self.cam.wait_still(min_wait=0.8)
+            r = self.cam.measure(tgt["roi"])
         if ov:
             self.cam.overlay = ov
         return r
@@ -160,6 +169,7 @@ class Show:
         start_gains = {k: dict(v) for k, v in self.gains.items()}
         cam_bias = self.cfg["camera"]["brightness"]
         cam_bias_before = self.cam.get_ctl("brightness") if cam_bias is not None else None
+        self.cam_bias = cam_bias
         try:
             if cam_bias is not None:
                 self.cam.ctl("brightness", cam_bias)

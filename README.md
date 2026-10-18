@@ -123,6 +123,7 @@ To start a run without the page, use `python3 show_server.py --start`. To store 
 
 - A run sets the gains of each monitor. It turns each channel to 0 for 1.5 seconds, so the screen flashes cyan, magenta, and yellow.
 - During the bow, the other monitors dim to brightness 0 for about 3 seconds.
+- If more than half of a measurement box is near the top of the camera range, the run lowers `camera.brightness` by 10 and measures again.
 - At the end, or after an error, the run puts back the monitor brightness and the camera controls. After an error, it also puts back the gains from before the run.
 - Without `--save`, a monitor can lose the new gains when it powers off. Use `--save`, or run `ddcutil --bus N scs`.
 
@@ -131,6 +132,7 @@ To start a run without the page, use `python3 show_server.py --start`. To store 
 - One gain set matches the monitors at one gammastep temperature. Panels with different primaries (base colors), for example OLED and IPS, drift apart at other temperatures.
 - Gains set only the white point. Grays follow the tone curve of each panel, and the gains do not change that.
 - A camera does not see color exactly as an eye does. Repeat runs differ by about 0.002.
+- The camera needs steady light. In daylight, repeat readings agreed within 0.0005. At night under a warm gammastep tint, they drifted by up to 0.0045. For a night run, pause gammastep and use a fixed `target`.
 - Each step on many IPS monitors is about 4 to 5 % of light, so the best match is often 0.001 away from the target.
 
 ![The bow screen with the mascot and the live camera](images/bow.jpg)

@@ -11,6 +11,9 @@ import numpy as np
 import cie
 
 
+CLIP_CODE = 242     # 8-bit camera code at which highlights start to compress
+
+
 class Camera:
     def __init__(self, device="/dev/video0", width=3840, height=2160):
         self.device = device
@@ -129,11 +132,20 @@ class Camera:
         x0, y0, x1, y1 = roi
         sl = (slice(int(y0 * h), int(y1 * h)), slice(int(x0 * w), int(x1 * w)))
         acc = None
+        bad = None
         for f in frames:
-            lin = cie.SRGB_TO_LINEAR[f[sl]]
+            c = f[sl]
+            lin = cie.SRGB_TO_LINEAR[c]
             acc = lin if acc is None else acc + lin
-        clip = float((frames[-1][sl] >= 250).any(axis=2).mean())
+            # The camera compresses its top codes, so a pixel near the top in any
+            # channel has the wrong color. Such pixels are left out.
+            hot = (c >= CLIP_CODE).any(axis=2)
+            bad = hot if bad is None else bad | hot
+        clip = float(bad.mean())
         px = (acc / n).reshape(-1, 3)[:, ::-1]          # BGR -> RGB
+        ok = ~bad.reshape(-1)
+        if ok.mean() >= 0.05:
+            px = px[ok]
         y = px @ np.array([0.2126, 0.7152, 0.0722])
         lo, hi = np.percentile(y, [10, 90])
         rgb = px[(y >= lo) & (y <= hi)].mean(axis=0)

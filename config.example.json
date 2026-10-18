@@ -5,7 +5,7 @@
     "height": 2160,
     "white_balance_k": 6500,
     "home": [0, 0, 100],
-    "brightness": 40
+    "brightness": 25
   },
   "target": "gammastep",
   "gammastep_config": "~/.config/gammastep/config.ini",
